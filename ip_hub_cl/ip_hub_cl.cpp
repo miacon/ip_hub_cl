@@ -1,59 +1,71 @@
-// ip_hub_cl.cpp: определяет точку входа для консольного приложения.
-//
 
 #include "stdafx.h"
-#include <iostream>
-//#include <conio.h>
-#include <time.h>
-#include <stdint.h>
 
-using namespace std;
-
-#include <winsock2.h>
-#pragma comment(lib, "Ws2_32.lib")
-
-// Порт сервера
-//#define SERV_PORT 5000
-// Размер приёмного буфера
+//Input Buffer size
 #define BUFF_SIZE 256
+
+//Quaternion elements count 4 :)
 #define QUATS_ARRAY_COUNT 4
+
+//Maximum quaternions allowed
 #define MAX_QUATS 20
+
+//TCP answer preamble
 #define TCP_HEADER 0x55aa
+
+//Packet answer type
 #define PACKET_TYPE 0x0211
 
 struct SOCK_RECORD {
-	// Сокет сервера
+	//Server socket
 	SOCKET srv_socket;
-	// Длина использованного сокета
+	//Server socket length
 	int acc_sin_len;
-	// Адрес использованного сокета
+	//Address of socket
 	SOCKADDR acc_sin;
-	// Адрес сервера
+	//Server address
 	SOCKADDR_IN dest_sin;
 };
 
-int	UDP_PORT,TCP_PORT;
+//UDP & TCP port numbers
+int	UDP_PORT, TCP_PORT;
 
+//s1 - record for UDP; s2 - for TCP
 SOCK_RECORD s1,s2;
 
+//Start server socket. One for UDP and one for TCP
 void ServerStart(SOCKET *srv_socket, int protocol);
+
+//Routine for datagramm send
 int SendMsg(SOCK_RECORD *sr, int protocol, char *szBuf, int length);
+
+//Converter from UDP to TCP packets, according given requarements
 int parsePacket(char *szTemp, int rc);
+
+//routine for start sequence
 int ServersStart(void);
+
+//tiny usage help
 void usage(void);
 
+//string for current time
 char curTime[32];
+//convert current time to string curTime
 void getTime(void);
 
 int _tmain(int argc, _TCHAR* argv[])
-//int _tmain(int argc, char **argv)
 {
 	int rc;
 	int need_reconnect;
 	char szTemp[BUFF_SIZE+1];
+
+//readen packets counter
 	int count_r;
+
+//writen packets counter
 	int count_s;
 
+//check for correct command line parametres
 	if(argc!=3){
 		usage();
 		return FALSE;
@@ -64,48 +76,64 @@ int _tmain(int argc, _TCHAR* argv[])
 	}
 	cout<<"UDP_PORT=" <<UDP_PORT <<" TCP_PORT="<<TCP_PORT <<endl;
 
+//First we need connection
 	need_reconnect=1;
+//Zero input counters
 	count_r=count_s=0;
 
+//endless loop
 	do {
+		//first start or restart after disconnect
 		if(need_reconnect==1){ 
+			//Zero input counters
 			count_r=count_s=0;
 			if(ServersStart()){
+				//We are connected... Lets work!
 				need_reconnect=0;
 				cout<< "Packets received/sent: " <<endl;
 			}
 			else {
+				//Fatality
 				cout<< "Error: " <<WSAGetLastError() <<endl;
 				return FALSE;
 			}
 		}
 
+		//here receive UDP packet
 		rc = recv(s2.srv_socket, szTemp, BUFF_SIZE, 0);
 		if(rc>0){
+			//nonempty input packet will be counted
 			count_r++;
+			//Carrige return and write on the same place input counter
 			cout<< '\r' <<count_r;
 
+			//Lets decode input packet
 			if((rc=parsePacket(szTemp,rc))>0){
+				//if all ok send TCP datagramm
 				if(SendMsg(&s1, SOCK_STREAM, szTemp, rc)>0){
+					//nonempty output packet will be counted
 					count_s++;
 					cout<< "/" <<count_s;
 				}
 				else {
+					//We lost TCP connection
+					//maybe exists better way to find out it? Who knows...
 					getTime();cout<<endl  <<curTime;
 					cout<< "/" <<count_s;
 					cout <<" TCP connection lost" <<endl;
+					//I'll be back. (c)
 					need_reconnect=1;
 				}
 			}
 			else {
+				//output packet counter did not changed, but it must be renew in console
 				cout<< "/" <<count_s;
 			}
-		}
-//		cout<< '*';
-	}
-	while(1);
-//	while(!_kbhit());
+		}//if(rc)
+	}//do
+	while(1); //forewer
 
+	//I must write this. Maybe in deep future somebody come here...
 	closesocket(s1.srv_socket);
 	closesocket(s2.srv_socket);
 	WSACleanup();
@@ -117,26 +145,22 @@ void ServerStart(SOCKET *srv_socket, int protocol)
 	struct sockaddr_in srv_address;
 	int port;
   
+	//Select port
 	port=(protocol==SOCK_STREAM)?TCP_PORT:UDP_PORT;
 
-	// Создаем сокет сервера для работы с потоком данных
+	//Create socket
 	*srv_socket = socket(AF_INET, protocol, 0);
 	if(*srv_socket == INVALID_SOCKET) {
 		cout<< "socket Error" <<endl;
 		return;
 	}
 
-	// Устанавливаем адрес IP и номер порта
+	//Set IP and Port
 	srv_address.sin_family = AF_INET;
 	srv_address.sin_addr.s_addr = INADDR_ANY;
 	srv_address.sin_port = htons(port);
 
-/*
-	const char on = 1;
-	setsockopt(*srv_socket, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on));
-*/
-
-	// Связываем адрес IP с сокетом  
+	//Bind Socket on IP
 	if(bind(*srv_socket, (LPSOCKADDR)&srv_address, sizeof(srv_address)) == SOCKET_ERROR) {
 		// При ошибке закрываем сокет
 		closesocket(*srv_socket);
@@ -152,20 +176,16 @@ int port;
   
 	port=(protocol==SOCK_STREAM)?TCP_PORT:UDP_PORT;
 
-	// Посылаем сообщение
+	//Send TCP datagramm
 	if(protocol==SOCK_STREAM) {
 		rc=send((*sr).srv_socket, szBuf, length, 0);
 	}
 /*
 	else {
-		// Устанавливаем адрес IP и номер порта
+    //we dont need to sent UDP packets
 		(*sr).dest_sin.sin_family = AF_INET;
-
-		// Другой способ указания адреса узла
 		(*sr).dest_sin.sin_addr.s_addr = inet_addr("127.0.0.1");
-		// Копируем номер порта
 		(*sr).dest_sin.sin_port = htons(port);
-
 		rc=sendto((*sr).srv_socket, szBuf, length, 0,
 			(PSOCKADDR)&((*sr).dest_sin), sizeof((*sr).dest_sin));
 	}
@@ -177,19 +197,23 @@ int ServersStart(void){
 	WSADATA WSAData;
 
 	WSACleanup();
+	//Winsock startup
 	if(WSAStartup(MAKEWORD(2, 2), &WSAData)!=0){
 		cout<< "WSAStartup Error" <<endl;
 		return FALSE;
 	}
 
+	//Start UDP server
 	ServerStart(&s2.srv_socket, SOCK_DGRAM);
 	getTime();cout<< curTime;
 	cout<< " UDP server start Ok" <<endl;
 
+	//Start TCP server
 	ServerStart(&s1.srv_socket, SOCK_STREAM);
 	getTime();cout<< curTime;
 	cout<< " TCP server start Ok" <<endl;
 
+	//Listen TCP port
 	if(listen(s1.srv_socket, 1) == SOCKET_ERROR){
 		closesocket(s1.srv_socket);
 		cout<< "listen Error" <<endl;
@@ -198,12 +222,15 @@ int ServersStart(void){
 	getTime();cout<< curTime;
 	cout <<" TCP server listen port "<< TCP_PORT <<endl;
 
+	//Accept connection
+	//Here we will wait, until somebody to connect
 	s1.acc_sin_len=sizeof(s1.acc_sin);
 	(s1.srv_socket)=accept(s1.srv_socket,&(s1.acc_sin),&(s1.acc_sin_len));
 	if((s1.srv_socket) == INVALID_SOCKET){
 		cout <<"accept Error, invalid socket" <<endl;
 		return FALSE;
 	}
+	//Celebrate connection
 	getTime();cout<< curTime;
 	cout<< " client " << inet_ntoa(((struct sockaddr_in*)&(s1.acc_sin))->sin_addr) <<" connected" <<endl;
 
@@ -214,6 +241,7 @@ int parsePacket(char *szTemp, int rc){
 	int i,count,quats_count;
 
 //Input packet
+//See documentation
 	struct {
 		uint32_t counter;
 		uint32_t mask;
@@ -223,6 +251,7 @@ int parsePacket(char *szTemp, int rc){
 //------------
 
 //Output packet
+//See documentation
 	struct {
 		uint16_t Id;
 		uint16_t Len;
@@ -246,15 +275,19 @@ int parsePacket(char *szTemp, int rc){
 	//Quatilions count calculated by size of input packet
 	quats_count=((rc-sizeof(m_in))/sizeof(float))/QUATS_ARRAY_COUNT;
 
-	//Проверки 1-не менее 3х uint32_t, 2-quats не более 20ти, 3-пакет полный(кратен 4м)
+	//Check min packet size
+	//quats no more MAX_QUATS
+	//Packet size ok?
 	if((rc<sizeof(m_in))||(quats_count>MAX_QUATS)||(QUATS_ARRAY_COUNT*sizeof(float)*quats_count!=(rc-sizeof(m_in)))){
 		return 0;
 	}
 
+	//Copy input first 3 elements from buffer into structure
 	memcpy(&m_in,&szTemp[0],sizeof(m_in));
+	//Copy least buffer into quternions array
 	memcpy(&quats,&szTemp[sizeof(m_in)],quats_count*QUATS_ARRAY_COUNT*sizeof(float));
 
-	//Проверка соответствия маски и реального количества кватерионов
+	//Check mask and quternion count. It must be the same
 	count=0;
 	mask_tmp=m_in.mask;
 	for(i=0;i<MAX_QUATS;i++){
@@ -283,6 +316,7 @@ int parsePacket(char *szTemp, int rc){
 	for(i=0;i<MAX_QUATS;i++){
 		if(mask_tmp&1){
 			for(int j=0;j<QUATS_ARRAY_COUNT;j++){
+				//Convert quaternion from float to fixed point format
 				sensors[i].Quat[j]=(int16_t)floor(quats[count][j]*32768);
 				check_sum+=(uint16_t)sensors[i].Quat[j];
 			}
@@ -290,6 +324,7 @@ int parsePacket(char *szTemp, int rc){
 			count++;
 		}
 		else {
+			//Zero unused sensors
 			memset(&sensors[i],0,sizeof(sensors[i]));
 		}
 		mask_tmp>>=1;
