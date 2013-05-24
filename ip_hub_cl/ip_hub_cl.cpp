@@ -1,3 +1,23 @@
+/*
+  ip_hub_cl.cpp:
+  Version 1.0, 24 May 2013
+
+  This software is provided 'as-is', without any express or implied
+  warranty.  In no event will the author be held liable for any damages
+  arising from the use of this software.
+  
+  This is TCP/IP server console application.
+  - Listen to a TCP port (port number is configurable from a command line)
+  - Catch UDP packets broadcast to a specific UDP port (port number is configurable from a command line)
+  - Parse the packets, take certain data fields
+
+  Usage:
+  ip_hub_cl.exe UDP_PORT TCP_PORT
+ 
+  Design for Inertial Labs, Inc. , BlueNet Solutions.
+  Vladimir Mihaylov  t380689005276@gmail.com
+*/
+
 
 #include "stdafx.h"
 
